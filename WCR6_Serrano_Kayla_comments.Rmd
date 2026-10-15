@@ -1,0 +1,87 @@
+### my comments preceded by `CPK:`
+---
+title: "WCR 6"
+author: "Kayla Serrano"
+date: "2026-10-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(StereoMorph)
+library(geomorph)
+library(abind)
+```
+
+## Question 1: Create Landmark Reference
+
+```{r}
+lm_ref <- c("1_snout",
+            "2_dorsal_tip",
+            "3_caudal_tip",
+            "4_pelvic_tip",
+            "5_pectoral_tip")
+```
+
+## Question 2: Create Landmark Directory
+
+```{r}
+dir.create("wcr_landmarks", showWarnings = FALSE)
+```
+
+## Question 3: Digitize Shark Landmarks
+
+```{r digitize, eval=FALSE}
+digitizeImages(image.file = "wcr_images",
+               shapes.file = "wcr_landmarks", 
+               landmarks.ref = lm_ref, 
+               landmark.color.blur = "cyan", #colors for easy viewing.
+               landmark.color.focus = "yellow", 
+               control.point.color.blur = "orchid", 
+               control.point.color.focus = "hotpink",
+                landmark.radius = 5)
+```
+
+## Question 4: Read Landmark Files
+
+```{r}
+sm_lms <- readShapes("wcr_landmarks")
+```
+
+## Question 5: Convert to Geomorph Array
+
+```{r}
+gm_lms <- readland.shapes(sm_lms)
+```
+
+## Question 6: Procrustes Alignment
+
+```{r}
+gpa <- gpagen(gm_lms)
+```
+
+## Question 7: Principal Components Analysis
+
+```{r}
+pca <- gm.prcomp(gpa$coords)
+```
+
+## Question 8: Plot PCA
+
+```{r}
+plot(pca, axis1 = 1, axis2 = 2)
+```
+
+
+
+
+
+###CPK: Awesome work! This was a lot!
+
+
+
+
+#Total points: 10
+
