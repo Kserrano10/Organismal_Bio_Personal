@@ -1,0 +1,134 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "Project 4"
+author: "Team 2"
+date: "2026-09-29"
+output: html_document
+bibliography: BIOL3140.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r,include=FALSE}
+library(tidyverse) #always
+library(ape) #for evo analysis
+library(nlme) #for evo analysis
+library(MuMIn) #for AIC
+library(geiger) #for eco analysis
+library(knitr) #for knitting options 
+```
+
+# Introduction
+
+The highly-diverse genus *Anolis* contains over 400 species, making it the most speciose genus within the Amniota. In this study, we seek to examine the relationship between snout-vent length (SVL) and total hind-limb length (HTotal). Previously, the hind limb-ecomorph relationship has been studied in anoles [@hagey2017there]. We will perform a residual analysis to determine how this relationship varies with ecomorph, and we will utilize Brownian Motion and Ornstein-Uhlenbeck model fitting to correct for phylogenetic non-independence. 
+
+<center>
+![An *Anolis* lizard](https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRH7oW9KFBNAzQXxdtuwt3osbP58QFBkML8xNVduK6k1wkyEQJe5se9iAcj&s=10)
+</center>
+
+# Methods
+
+Morphological and ecomorphological data from 46 species of anole were combined and filtered by species to produce data on mean snout-vent length (`SVL`, length between the snout and the vent, i.e., anus, a standard for reptiles), and the mean total hind-limb length (`HTotal`). A linear model first was created to plot `SVL` versus `HTotal`, followed by a non-linear allometric one. The fit of these models was compared using the Akaike Information Criterion (AIC). 
+
+Next, using data from an anole phylogenetic tree [@poe2017phylogenetic] the effect of ecomorphology on the hindlimb-SVL relationships was taken into account
+
+# Results
+
+We uncovered a significant effect from the parameters ArbPD and the combination of ArbPD and PH. The most optimal model under AIC was the combination model, which differed from the ArbPD model by ~1.7. Residual modeling displays disparate effects for grass-bush and trunk-ground ecomorphs compared to others.
+
+
+```{r, "load the data"}
+anole <- read_csv("anole.dat.csv")
+anole.eco <- read_csv("anole.eco.csv")
+anole.tree <- read.tree("anole.tre")
+```
+```{r, "join, filter, mutate to log"}
+anole2 <- anole %>%
+  left_join(anole.eco) %>%
+  filter(!Ecomorph %in% c("U", "CH")) %>%
+  na.omit()
+
+anole.log <- anole2 %>%
+  mutate_at(c("SVL", "HTotal", "PH", "ArbPD"),log)
+```
+```{r, "PGLS models"}
+### phylogenetic GLS models
+
+#PGLS under BM, no ecomorph
+pgls.BM1 <- gls(HTotal ~SVL, correlation = corBrownian(1,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+
+#PGLS under BM, w ecomorph
+pgls.BM2 <- gls(HTotal ~SVL * Ecomorph2, correlation = corBrownian(1,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+
+#PGLS under OU, no ecomorph
+pgls.OU1 <-  gls(HTotal ~SVL, correlation = corMartins(0,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+
+#PGLS under OU, w ecomorph
+pgls.OU2 <-  gls(HTotal ~SVL * Ecomorph2, correlation = corMartins(0,phy = anole.tree,form=~Species),data = anole.log, method = "ML")
+```
+```{r, "AIC"}
+#AIC operations
+anole.phylo.aic <- AICc(pgls.BM1,pgls.BM2,pgls.OU1,pgls.OU2)
+anole.phylow.aicw <- aicw(anole.phylo.aic$AICc)
+```
+```{r, "AIC-table"}
+anole.phylo.aic["AICc"] %>%
+  kable(
+    rownames = "Model",
+    caption = "AIC values for the four PGLS models under Brownian motion and Ornstein–Uhlenbeck evolution, with and without ecomorph.")
+```
+```{r, "add residuals"}
+#add phylo-corrected residuals 
+anole.log <- anole.log %>%
+  mutate(phylo.res=residuals(pgls.BM2))
+```
+```{r "regression-plot", fig.cap="Log-transformed total hindlimb length (HTotal) versus log-transformed snout-vent length (SVL), with points and regression lines colored by anole ecomorph. Lines show ordinary linear regressions within each ecomorph."}
+#plot regression
+anole.log %>%
+  ggplot(aes(x = SVL, y = HTotal, color = Ecomorph2)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
+  labs(
+    x = "ln(Snout-vent length)",
+    y = "ln(Total hindlimb length)",
+    color = "Ecomorph"
+  ) +
+  theme_classic()
+```
+
+```{r, "plot residuals", fig.cap="Boxplot of phylogenetically corrected hindlimb residuals versus anole ecomorph"}
+#plot residuals 
+p.eco.phylo <- anole.log %>%
+  ggplot(aes(x=Ecomorph2,y=phylo.res)) +geom_boxplot() +stat_summary(fun=mean, geom="point", size=3)
+
+print(p.eco.phylo)
+```
+
+# Discussion
+
+Brownian Motion modeling and AIC testing suggest that the SVL~HTotal relationship is significantly affected by ArbPD and the combination between ArbPD and PH. PH alone is insufficient to account for the data. Residual analysis shows that the SVL~HTotal relationship experiences different effects for the grass-bush and trunk-ground ecomorphs compared to the crown-giant, trunk, trunk-crown, and twig ecomorphs.
+
+# Author Contributions
+
+This report was created by the members of Team 2 (Noah Baccay, John	Evans, Grace	Jacobs, and Kayla	Serrano) with help from the Module 4 project guide, created by Professor Kenaley. 
+
+## AI-Use Statement
+
+AI was not used to generate code in this report
+
+# References
+
+
+<div class="comment">
+Wow. This is stellar!
+
+Total points: 25
+</div>
+
+#Peer evaluation: Your peer(s) found that you were helpful in all aspects of the project.
