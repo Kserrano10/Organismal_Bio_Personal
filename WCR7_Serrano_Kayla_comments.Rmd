@@ -1,0 +1,70 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 7"
+author: "Kayla Serrano"
+date: "2026-10-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ape)
+library(geomorph)
+```
+
+## Load Data
+
+```{r}
+ldk <- readRDS("aligned_landmarks.RDS")
+species_dat <- read_csv("habitat_data.csv")
+phy <- read.nexus("tree_file.nex")
+```
+
+## Habitat Data
+
+```{r}
+hab <- species_dat$habitat
+names(hab) <- species_dat$sp
+```
+
+## Create Geomorph Data Frame
+
+```{r}
+phy_one <- phy[[1]]
+gdf <- geomorph.data.frame(
+  coords = ldk$coords,
+  hab = hab,
+  phy = phy_one
+)
+```
+ 
+## Procrustes PGLS
+
+```{r}
+pgls <- procD.pgls(
+  coords ~ hab,
+  phy = phy_one,
+  data = gdf,
+  iter = 1000
+)
+```
+
+## ANOVA
+
+```{r}
+anova(pgls)
+```
+
+
+
+<div class="comment">
+Excellent, Kayla!
+
+Total points: 10
+</div>
