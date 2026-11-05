@@ -1,0 +1,365 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "Module 5 Team 7"
+author: "Kayla Serrano, Isabella Gonzalez, Olivia Crandall"
+date: "2026-10-26"
+output: html_document
+bibliography: Module5Team7.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The purpose of this project is to study the ecomorphology of sharks. @thomson1977body was the first to delegate different species of sharks into four categories based on body shape, but @sternes2020body determined the two different morphotypes of sharks that we will use in this project. @sternes2020body did not explicitly categorize these two groups by the habitat in which they live, but rather used geometric morphometrics and multivariate analysis. In our project, we examined many different species of sharks, splitting them into benthic and pelagic habitat groups. Our group worked with a directory of 108 images of sharks with 14 different landmarks marked onto each image. These landmarks helped us identify the morphological differences between the benthic and pelagic species. These morphological differences between the two groups can help us identify the evolutionary patterns between them, and help us answer our main question: do the evolutionary rates between pelagic and benthic species of shark differ?
+
+# Methods
+
+First we loaded all the necessary packages that were required to complete the project. This included tidyverse, StereoMorph, geomorph, phytools, abind, future, and future.apply. We loaded the shark data set, the shark phylogenetic tree data, along with our group’s images of the sharks along with our landmark directory.
+
+```{r packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(StereoMorph)
+library(geomorph)
+library(phytools)
+library(abind)
+library(future)
+library(future.apply)
+
+shark_dat <- read_csv("shark_data.csv")
+phy <- readNexus("shark_trees.nex")
+
+image_directory <- "images_team_7"
+landmark_directory <- "shark_landmarks"
+```
+
+We aligned the shark landmark data using a Generalized Procrustes Analysis (GPA). We did this in order to perform analyses on the data without differences in the size, orientation and positions of the sharks affecting the analysis.
+
+```{r gpa, message=FALSE, warning=FALSE}
+stereomorph_landmarks <- StereoMorph::readShapes(landmark_directory)
+geomorph_landmarks <- geomorph::readland.shapes(stereomorph_landmarks)
+gpa <- gpagen(geomorph_landmarks,ProcD = F)
+```
+
+We performed a principal components analysis (PCA) of our aligned data. The purpose of this is to help develop a morphospace representation of our data by reducing the complexity of the multiple data points by creating a series of vectors.
+
+```{r pca-analysis}
+pca <- gm.prcomp(gpa$coords)
+
+PCA <- pca$x %>%
+  data.frame %>%
+  dplyr::select(Comp1:Comp4) %>%
+  rownames_to_column("sp_spec") %>%
+  mutate(
+    sp=gsub("(.*)_(.*)_.*","\\1 \\2",sp_spec),
+    spec=gsub(".*_.*_(.*)","\\1",sp_spec)
+    ) %>%
+  left_join(shark_dat, by = "sp")
+```
+
+Here we are reducing our file containing the phylogenetic tree to only include the species that we are studying in our group’s data set. We then set the mean_shape vector which contains the mean 3 dimensional shape for each species. This is calculated according to the tree tips. We then created a habitat vector.
+
+```{r species-mean-shapes}
+# Species shared by landmarks, habitat, and trees
+sp <- Reduce(
+  intersect,
+  c(
+    list(unique(PCA$sp), shark_dat$sp),
+    lapply(phy, function(x) x$tip.label)
+    )
+  )  
+
+# Restrict phylogenetic trees to shark species
+phy2 <- lapply(phy, function(x) keep.tip(x, sp)) #CPK: keep.tip will work just fine on a multiphylo object
+class(phy2) <- "multiPhylo"
+
+# Mean shape of uniquely named coordinates
+mean_shape <- function(x){
+  sp <- dimnames(x$coords)[[3]]
+  m_shapes <- list()
+  
+  for(s in unique(sp)){
+    sp_n <- which(sp==s)
+    
+    m_shapes[[s]] <- mshape(
+      x$coords[,,sp_n, drop = F]
+      )
+  }
+  
+  m_ <- abind(m_shapes,along=3)
+  return(m_)
+}
+
+# Rename coordinates
+dimnames(gpa$coords)[[3]] <- PCA$sp
+
+# Calculate mean shapes in tree tip order
+mean_coords <- mean_shape(gpa)[
+  ,,phy2[[1]]$tip.label, drop = F
+  ]
+
+# Establish habitat vector according to tip labels
+hab <- setNames(
+  shark_dat$habitat,
+  shark_dat$sp
+  )[phy2[[1]]$tip.label]
+
+# Geomorph data frame
+gdf <- geomorph.data.frame(
+  coords = mean_coords,
+  habitat = factor(hab),
+  phy=phy2[[1]]
+)
+```
+
+We then performed a PGLS analysis in order to determine if the morphology of the shark species differed between habitats. This step helped incorporate our geomorph data along with the relationships between species on the phylogenetic tree. We used 10,000 iterations for this model. We then performed an ANOVA analysis to obtain a p-value and test the relationship between habitat and body shape. 
+
+```{r pgls-parallel, eval=FALSE}
+# Parallel processing
+plan(
+  multisession,
+  workers = 2
+)
+
+set.seed(1234)
+
+# Run PGLS across 500 trees
+pgls_results <- future_lapply(
+  phy2[1:500],
+  function(tree){
+    
+    # Create geomorph dataframe
+    gdf_i <- geomorph.data.frame(
+      coords = mean_coords,
+      habitat = factor(hab),
+      phy = tree
+    )
+    
+    # Run PGLS
+    model <- procD.pgls(
+      coords ~ habitat,
+      phy = tree,
+      data = gdf_i,
+      iter = 10000,
+      print.progress = F
+    )
+    
+    # Extract ANOVA p-value for habitat
+    a <- anova(model)
+    as.numeric(a$table["habitat", "Pr(>F)"])
+  },
+  future.seed = TRUE
+)
+
+# Shut down parallel workers
+plan(sequential)
+
+# Save p-values
+p_values <- unlist(pgls_results)
+saveRDS(p_values, "shark_pgls_pvalues.rds")
+```
+
+This section sets up parallel computing in order to increase the speed at which the results are calculated. It then conducts an evolutionary rate analysis across 500 phylogenetic trees.
+
+```{r rates-parallel, eval=FALSE}
+# Set up parallel processing
+plan(
+  multisession, 
+  workers = 2
+  )
+
+set.seed(1234)
+
+# Run evolutionary rate analysis across 500 trees
+rate_results <- future_lapply(
+  phy2[1:500],
+  function(tree) {
+    
+    er <- compare.evol.rates(
+      A = mean_coords,
+      phy = tree,
+      method = "simulation",
+      gp = hab,
+      iter = 10000,
+      print.progress = F
+    )
+    
+    c(
+      benthic = unname(er$sigma.d.gp["benthic"]),
+      pelagic = unname(er$sigma.d.gp["pelagic"]),
+      ratio = er$sigma.d.ratio,
+      p_value = er$P.value
+    )
+  },
+  future.seed = TRUE,
+  future.chunk.size = 1
+)
+
+# Shut down parallel workers 
+plan(sequential)
+
+# Combine results
+rate_df <- as.data.frame(do.call(rbind, rate_results))
+
+# Save evolutionary rate results
+saveRDS(rate_df, "shark_evolutionary_rates.rds")
+```
+
+```{r load-analysis-results}
+p_values <- readRDS("shark_pgls_pvalues.rds")
+rate_df <- readRDS("shark_evolutionary_rates.rds")
+```
+
+# Results
+
+We first plotted the results of our Generalized Procrustes Analysis in order to visualize the average shape of our landmark directory.
+
+```{r gpa-plot, fig.width=8, fig.height=5, echo=FALSE}
+plot(gpa)
+```
+
+We plotted the Principal Component Analysis in order to visualize the variation of the morphology of the sharks. By color labeling the habitat of the sharks, it is possible to identify which data points come from benthic habitats vs pelagic habitats.
+
+```{r morphospace, fig.width=8, fig.height=5, echo=FALSE}
+PCA %>%
+  ggplot(aes(Comp1,Comp2,col=habitat)) +
+  geom_point() +
+  theme_classic() +
+  labs(
+    title = "Shark Morphospace by Habitat",
+    x = "PC1",
+    y = "PC2",
+    color = "Habitat"
+  )
+
+#CPK: we need figure captions, not just titles [-2]
+```
+
+Plotting our PGLS data in a histogram visualizes the distribution of p-values across the 500 trees that we tested
+
+```{r pgls-histogram, fig.width=8, fig.height=5, echo=FALSE}
+pgls_df <- data.frame(p_values)
+
+pgls_df %>%
+  ggplot(aes(x = p_values)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  geom_vline(
+    xintercept = 0.05,
+    linetype = "dashed",
+    color = "red"
+  ) +
+  theme_classic() +
+  labs(
+    title = "Distribution of PGLS P-values Across 500 Trees",
+    x = "ANOVA P-values",
+    y = "Number of Trees"
+  )
+```
+
+We then obtain how many trees are statistically significant, the average p-values of the statistically significant trees, and summary of all the p-values using the sum, mean, and summary functions
+
+```{r pgls-summary}
+# Number of significant trees
+sum(p_values < 0.05)
+
+# Proportion of significant trees
+mean(p_values < 0.05)
+
+# Summary of p-values
+summary(p_values)
+```
+
+This histogram plots the evolutionary rates of the species according to habitat. The distribution of evolutionary rates is plotted in order to visualize the evolutionary rates for all 500 trees. 
+
+```{r rate-histogram, fig.width=8, fig.height=5, echo=FALSE}
+rate_long <- rate_df %>%
+  dplyr::select(benthic, pelagic) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "habitat",
+    values_to = "evolutionary_rate"
+  )
+
+rate_long %>%
+  ggplot(aes(x = evolutionary_rate, fill = habitat)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    alpha = 0.7
+  ) +
+  facet_wrap(~habitat) +
+  theme_classic() +
+  labs(
+    title = "Distribution of Evolutionary Rates Across 500 Trees",
+    x = "Estimated Evolutionary Rate",
+    y = "Number of Trees",
+    fill = "Habitat"
+  )
+```
+
+The mean of all the evolutionary rates is calculated. Then the number of evolutionary rates that are statistically significant are determined by the sum function, the mean p-value of those values are calculated, and a summary of evolutionary rate ratios is given. 
+
+```{r rate-summary}
+# Mean evolutionary rates
+colMeans(rate_df[, c("benthic", "pelagic")])
+
+# Number and proportion of significant trees
+sum(rate_df$p_value < 0.05)
+mean(rate_df$p_value < 0.05)
+
+# Summary of evolutionary rate ratios 
+summary(rate_df$ratio)
+
+# Number and proportion of trees with higher benthic rates
+sum(rate_df$benthic > rate_df$pelagic)
+mean(rate_df$benthic > rate_df$pelagic)
+```
+
+# Discussion
+
+After accounting for phylogenetic relationships, our results did not provide evidence of a significant difference in mean body shape between benthic and pelagic sharks. The PCA showed overlap between benthic and pelagic sharks, and the Procrustes PGLS analyses were not significant across any of the 500 phylogenetic trees: data was p = 0.1836-0.3825. @sternes2020body identified two broad shark body forms associated with habitat and swimming mode. These body forms being shallow-bodied that were mainly benthic while deeper-bodied forms were mainly pelagic. However, our results did not support a clear separation in body shape based on habitat. Differences in feeding strategies and swimming modes may help explain the variation in body shape among sharks within the same habitat even though we did not directly test these factors.
+
+Benthic sharks had higher estimated rates of body shape evolution than pelagic sharks across the 500 phylogenetic trees. The median ratio was 1.32, meaning that body shape evolved 32% faster in benthic sharks. But, this difference in evolution speed was only statistically significant in 57.8% of the trees. So, even though benthic sharks had higher estimated rates, producing a significant difference depended on which phylogenetic tree was used. One possible reason for this is that different feeding strategies and swimming modes in benthic habitats favor changes in body shape, even though our analyses don't directly test this reasoning. With these results, it can be inferred that benthic and pelagic sharks might differ in how quickly their body shapes evolve without having a significant difference in mean body shape. This also shows why accounting for uncertainty in phylogenetic relationships is important when comparing evolutionary rates.
+
+<div class="comment">
+
+We need to include at least one reference to another relevant study no mentioned in the description. [-2]
+</div>
+. 
+# Author
+Isabella Gonzalez digitzed landmarks on a large chunk of the team's assigned shark images and wrote the Discussion section
+
+Kayla Serrano contributed the coding component of the project including data preparation, phylogenetic analyses, and figure generation. Also organized the final R Markdown document.
+
+Olivia Crandall digitized the team's assigned shark images, created the bibliography, and wrote the introduction, methods, and results section.
+
+# Contributions
+Isabella Gonzalez used ChatGPT to clarify the project requirements and interpret statistical results. 
+
+Kayla Serrano used ChatGPT to clarify the project requirements. 
+
+Olivia Crandall used ChatGPT to clarify the project requirements. 
+
+# References 
+
+
+<div class="comment">
+Very nicely done, team. This was a consideralbe amount of work, some of it very technical. Congrats. Just be sure to include your data and cover the report requirements
+
+Total points: 46
+</div>
+
+#Peer evaluation: 
+
+Your peer(s) found that you were helpful in all aspects of the project. Keep up the good team work.
