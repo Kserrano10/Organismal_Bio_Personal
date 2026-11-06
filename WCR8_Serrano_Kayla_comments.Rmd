@@ -1,0 +1,41 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 8"
+author: "Kayla Serrano"
+date: "2026-10-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(memer)
+```
+
+```{r, fig.align='center', out.width='70%'}
+meme_get("TwoButtonsAnxiety") %>%
+  meme_text_buttons(
+    "UNDERSTAND\nTHE CODE",
+    "JUST GET\nIT TO RUN",
+    size=15
+    ) %>%
+  meme_text_top("ME DURING EVERY R ASSIGNMENT", size=22) %>%
+  meme_text_bottom("WHY CAN'T I HAVE BOTH?", size=22)
+```
+
+## Interpretation
+
+1. What I like most about the class is learning the skills to complete complex coding. I feel like I've gained a lot of confidence in my ability to navigate R successfully. I also appreciate the ability to complete projects in groups because I can learn from others and better my understanding of the assignment.
+
+2. What I like least about the class is the ambiguity surrounding how group work should be divided. I feel that it can be difficult to equally split up our contributions in some projects.
+
+
+<div class="comment">
+Nicely done, Kayla, and thanks for the feedback! Yes, collaboration is difficult especially because it's tough to figure out everyone's roles. But, you seem to be doing an admiral job.
+
+Total points: 10
+</div>
