@@ -1,0 +1,59 @@
+<!-- for comments -->
+  <style>
+  div.comment pre { background-color:#ffbbbb; }
+  div.comment pre.r { background-color:#ffbbbb; }
+  div.comment {color: red;}
+  </style>
+---
+title: "WCR 10"
+author: "Kayla Serrano"
+date: "2026-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(randomForest)
+```
+
+```{r analysis}
+# Read in data
+rf_dat <- read_csv("rf_dat.csv")
+
+# Random forest model 
+set.seed(123)
+rf_model <- randomForest(
+  response ~ .,
+  data = rf_dat,
+  mtry = 2,
+  ntree = 1000,
+  importance = TRUE
+)
+
+# Save predictions
+rf_dat$predictions <- predict(rf_model, newdata = rf_dat)
+
+# Plot variable importance
+varImpPlot(rf_model)
+
+#Plot predicted vs. actual values
+ggplot(rf_dat, aes(x = response, y = predictions)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0,
+               linetype = "dashed", color = "red") +
+  labs(
+    title = "Actual vs. Predicted Response",
+    x = "Actual Response",
+    y = "Predicted Response"
+  ) +
+  theme_classic()
+```
+
+
+
+<div class="comment">
+Excellent work, Kayla!!
+
+Total points: 10
+</div>
